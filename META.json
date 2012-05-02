@@ -1,0 +1,62 @@
+{
+   "abstract" : "blocking command-line interface to inotify",
+   "author" : [
+      "\u00c3\u0086var Arnfj\u00c3\u00b6r\u00c3\u00b0 Bjarmason <avar@cpan.org>"
+   ],
+   "dynamic_config" : 0,
+   "generated_by" : "Dist::Zilla version 4.300005, CPAN::Meta::Converter version 2.112621",
+   "license" : [
+      "perl_5"
+   ],
+   "meta-spec" : {
+      "url" : "http://search.cpan.org/perldoc?CPAN::Meta::Spec",
+      "version" : "2"
+   },
+   "name" : "App-Inotify-Hookable",
+   "no_index" : {},
+   "prereqs" : {
+      "configure" : {
+         "requires" : {
+            "ExtUtils::MakeMaker" : "6.30"
+         }
+      },
+      "runtime" : {
+         "requires" : {
+            "Linux::Inotify" : 0,
+            "Moose" : 0,
+            "MooseX::Getopt::Dashes" : 0,
+            "MooseX::Types::Moose" : 0,
+            "Time::HiRes" : 0,
+            "Try::Tiny" : 0,
+            "strict" : 0,
+            "warnings" : 0
+         }
+      },
+      "test" : {
+         "requires" : {
+            "File::Find" : 0,
+            "File::Temp" : 0,
+            "Test::More" : 0
+         }
+      }
+   },
+   "release_status" : "stable",
+   "resources" : {
+      "bugtracker" : {
+         "mailto" : "bug-App-Inotify-Hookable@rt.cpan.org",
+         "web" : "https://rt.cpan.org/Public/Dist/Display.html?Name=App-Inotify-Hookable"
+      },
+      "homepage" : "http://metacpan.org/release/App-Inotify-Hookable",
+      "license" : [
+         "http://dev.perl.org/licenses/"
+      ],
+      "repository" : {
+         "type" : "git",
+         "url" : "git://github.com/avar/app-inotify-hookable.git",
+         "web" : "http://github.com/avar/app-inotify-hookable"
+      }
+   },
+   "version" : "0.01",
+   "x_authority" : "cpan:AVAR"
+}
+
