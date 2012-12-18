@@ -4,13 +4,17 @@ BEGIN {
   $App::Inotify::Hookable::AUTHORITY = 'cpan:AVAR';
 }
 {
-  $App::Inotify::Hookable::VERSION = '0.02';
+  $App::Inotify::Hookable::VERSION = '0.03';
 }
 use Moose;
 use MooseX::Types::Moose ':all';
-use Linux::Inotify;
+use Linux::Inotify2;
+use POSIX ':errno_h';
 use Time::HiRes qw(gettimeofday tv_interval ualarm);
 use Try::Tiny;
+use Data::BitMask;
+use Data::Dumper;
+use Class::Inspector;
 
 with 'MooseX::Getopt::Dashes';
 
@@ -23,6 +27,15 @@ has debug => (
     documentation => "Should we print debug info about what we're doing?",
 );
 
+has quiet => (
+    metaclass     => 'MooseX::Getopt::Meta::Attribute',
+    is            => 'ro',
+    isa           => Bool,
+    default       => 0,
+    cmd_aliases   => 'q',
+    documentation => q{Don't log noisy information},
+);
+
 has watch_directories => (
     metaclass     => 'MooseX::Getopt::Meta::Attribute',
     is            => 'ro',
@@ -31,6 +44,16 @@ has watch_directories => (
     cmd_aliases   => 'w',
     auto_deref    => 1,
     documentation => "What directories should we watch?",
+);
+
+has watch_files => (
+    metaclass     => 'MooseX::Getopt::Meta::Attribute',
+    is            => 'ro',
+    isa           => ArrayRef[Str],
+    default       => sub { [] },
+    cmd_aliases   => 'f',
+    auto_deref    => 1,
+    documentation => "What files should we watch?",
 );
 
 has recursive => (
@@ -79,15 +102,36 @@ has _watches => (
 
 has _notifier => (
     is         => 'rw',
-    isa        => 'Linux::Inotify',
+    isa        => 'Linux::Inotify2',
     lazy_build => 1,
 );
 
-sub _build__notifier { Linux::Inotify->new }
+has _bitmask => (
+    is         => 'rw',
+    isa        => 'Data::BitMask',
+    lazy_build => 1,
+);
+
+sub _build__notifier { Linux::Inotify2->new }
 
 sub log {
     my ($self, $message) = @_;
+    return if $self->quiet;
     print STDERR scalar(localtime()), " : ", $message, "\n";
+};
+
+sub watch_paths {
+    my $self = shift;
+
+    return ($self->watch_directories, $self->watch_files);
+}
+
+my $dumper_squashed = sub {
+    my $val = shift;
+ 
+    my $dd = Data::Dumper->new([]);
+    $dd->Terse(1)->Indent(1)->Useqq(1)->Deparse(1)->Quotekeys(0)->Sortkeys(1)->Indent(0);
+    return $dd->Values([ $val ])->Dump;
 };
 
 sub run {
@@ -96,12 +140,12 @@ sub run {
     # Catch sigint so DEMOLISH can run 
     local $SIG{INT} = sub { exit 1 };
 
-    my @watching = $self->watch_directories;
+    my @watching = $self->watch_paths;
     die "You need to give me something to watch" unless @watching;
     $self->log(
         "Starting up, " .
         ($self->recursive ? "recursively " : "") .
-        "watching directories <@watching>"
+        "watching paths <@watching>"
     );
 
     my $notifier = $self->_notifier;
@@ -131,7 +175,11 @@ sub run {
 
       WAIT: while (1) {
             for my $event (@events) {
-                $event->print if $self->debug;
+                print "EVENT: ", $dumper_squashed->({
+                    cookie => $event->cookie,
+                    fullname => $event->fullname,
+                    mask => $self->_bitmask->explain_mask($event->mask),
+                }), "\n" if $self->debug;
             }
             $log_modified_paths->(\@events) if $should_log_modified_paths;
             @events = ();
@@ -156,7 +204,7 @@ sub run {
             }
         }
 
-        $self->log("Had changes in your directories");
+        $self->log("Had changes in your paths");
 
         if ($should_log_modified_paths) {
             $self->log("Checking for path-specific hooks") if $self->debug;
@@ -199,18 +247,21 @@ sub run {
     return 1;
 }
 
-sub all_directories_to_watch {
+sub all_paths_to_watch {
     my ($self) = @_;
     my @watch_directories = $self->watch_directories;
+    my @watch_files       = $self->watch_files;
     my @directories;
-    if ($self->recursive) {
-        chomp(@directories = qx[find @watch_directories -type d]);
-    } else {
-        @directories = @watch_directories;
+    if (@watch_directories) {
+        if ($self->recursive) {
+            chomp(@directories = qx[find @watch_directories -type d]);
+        } else {
+            @directories = @watch_directories;
+        }
     }
     # Don't notify on "git status" (creates a lock) and other similar
     # operations.
-    grep { not m[/\.git/?] } @directories;
+    ((grep { not m[/\.git/?] } @directories), @watch_files);
 }
 
 sub setup_watch {
@@ -221,45 +272,58 @@ sub setup_watch {
     my $debug    = $self->debug;
 
     # Remove any watches for directories we're watching that have gone away
-    EXISTING_WATCH: for my $directory (keys %$watches) {
-        unless (-d $directory) {
-            $watches->{$directory}->remove;
-            delete $watches->{$directory};
-            $self->log("Removed watch on directory: $directory") if $debug;
+    EXISTING_WATCH: for my $path (keys %$watches) {
+        my $type = $watches->{$path}{type};
+        unless ($type eq 'directory' ? -d $path : -f $path) {
+            $watches->{$path}{watch}->cancel;
+            delete $watches->{$path};
+            $self->log("Removed watch on $type: $path") if $debug;
         }
     }
 
     # Add new watches
-    NEW_WATCH: for my $directory ($self->all_directories_to_watch) {
-        next NEW_WATCH if exists $watches->{$directory};
-        try {
-            my $watch = $notifier->add_watch(
-                $directory,
-                (
-                    # This is a directory
-                    Linux::Inotify::ISDIR |
+    NEW_WATCH: for my $path ($self->all_paths_to_watch) {
+        next NEW_WATCH if exists $watches->{$path};
+        my $watch = $notifier->watch(
+            $path,
+            (
+                # Is this is a directory?
+                (-d $path ? 
                     # Modifications I care about
-                    Linux::Inotify::MODIFY
+                    IN_MODIFY
                     |
-                    Linux::Inotify::ATTRIB
+                    IN_ATTRIB
                     |
-                    Linux::Inotify::CREATE
+                    IN_CREATE
                     |
-                    Linux::Inotify::DELETE
+                    IN_DELETE
                     |
-                    Linux::Inotify::DELETE_SELF
+                    IN_DELETE_SELF
                     |
-                    Linux::Inotify::MOVED_FROM
+                    IN_MOVED_FROM
                     |
-                    Linux::Inotify::MOVED_TO
+                    IN_MOVED_TO
+                    |
+                    IN_MOVE_SELF
+                :
+                    # modifications for files
+                    IN_MODIFY
+                    |
+                    IN_ATTRIB
+                    |
+                    IN_CLOSE_WRITE
+                    |
+                    IN_DELETE_SELF
+                    |
+                    IN_MOVE_SELF
                 )
-            );
-            $self->log("Now watching directory: $directory") if $debug;
-            $watches->{$directory} = $watch;
-        } catch {
-            my $error = $_;
+            )
+        );
 
-            if ($error =~ /No space left on device/) {
+        if (not $watch) {
+            my $error = $!;
+
+            if ($error == ENOSPC) {
                 die <<"DIE"
 We probably exceeded the maximum number of user watches since we had a
 "No space left on device" error. Try something like this command and
@@ -274,8 +338,25 @@ DIE
             } else {
                 die $error;
             }
-        };
-    };
+        }
+
+        my $type = -d $path ? 'directory' : 'file';
+
+        $self->log("Now watching $type: $path") if $debug;
+
+        $watches->{$path}{watch} = $watch;
+        $watches->{$path}{type}  = $type;
+    }
+}
+
+sub _build__bitmask {
+    my %masks;
+    @masks{grep /^IN_/, @{ Class::Inspector->methods("Linux::Inotify2") }} = ();
+    foreach my $const (keys %masks) {
+        $masks{$const} = Linux::Inotify2->$const;
+    }
+
+    return Data::BitMask->new(%masks);
 }
 
 sub DEMOLISH {
@@ -283,7 +364,6 @@ sub DEMOLISH {
     my $notifier = $self->_notifier;
 
     $self->log("Demolishing $notifier");
-    $notifier->close;
 }
 
 1;
@@ -313,6 +393,12 @@ restart the webserver or compress those assets if anything changes:
         --on-modify-path-command "^(/etc/uwsgi|/git_tree/central|/etc/app-config)=sudo /etc/init.d/uwsgi restart" \
         --on-modify-path-command "^/git_tree/static_assets=(cd /git_tree/static_assets && compress_static_assets)"
 
+Or watch specific files:
+
+    inotify-hookable \
+        --watch-files /var/www/cgi-bin/mod_perl_handler \
+        --on-modify-command "apachectl restart"
+
 =head1 DESCRIPTION
 
 This simple command-line program is my replacement for the
@@ -320,7 +406,7 @@ functionality offered by L<Plack>'s L<Filesys::Notify::Simple>. I
 found that on very large git trees Plack would spend an inordinate
 amount watching the filesystem for changes.
 
-This program uses L<Linux::Inotify>, so the kernel will notify it
+This program uses L<Linux::Inotify2>, so the kernel will notify it
 B<instantly> when something changes (actually it's so fast that we
 have to work around how fast it sends us events).
 
@@ -339,6 +425,11 @@ something). Patches welcome.
 
 Specify this to watch a directory, you can give this however many
 times you like to watch lots of directories.
+
+=head2 C<-f> or C<--watch-files>
+
+Watch a file, specify multiple times for multiple files.
+You can watch files and directories in the same command.
 
 =head2 C<-r> or C<--recursive>
 

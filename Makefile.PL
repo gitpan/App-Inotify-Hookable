@@ -26,16 +26,20 @@ my %WriteMakefileArgs = (
   "LICENSE" => "perl",
   "NAME" => "App::Inotify::Hookable",
   "PREREQ_PM" => {
-    "Linux::Inotify" => 0,
+    "Class::Inspector" => 0,
+    "Data::BitMask" => 0,
+    "Data::Dumper" => 0,
+    "Linux::Inotify2" => 0,
     "Moose" => 0,
     "MooseX::Getopt::Dashes" => 0,
     "MooseX::Types::Moose" => 0,
+    "POSIX" => 0,
     "Time::HiRes" => 0,
     "Try::Tiny" => 0,
     "strict" => 0,
     "warnings" => 0
   },
-  "VERSION" => "0.02",
+  "VERSION" => "0.03",
   "test" => {
     "TESTS" => "t/*.t"
   }

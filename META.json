@@ -4,7 +4,7 @@
       "\u00c3\u0086var Arnfj\u00c3\u00b6r\u00c3\u00b0 Bjarmason <avar@cpan.org>"
    ],
    "dynamic_config" : 0,
-   "generated_by" : "Dist::Zilla version 4.300016, CPAN::Meta::Converter version 2.120921",
+   "generated_by" : "Dist::Zilla version 4.300028, CPAN::Meta::Converter version 2.120921",
    "license" : [
       "perl_5"
    ],
@@ -20,12 +20,21 @@
             "ExtUtils::MakeMaker" : "6.30"
          }
       },
+      "develop" : {
+         "requires" : {
+            "Test::Pod" : "1.41"
+         }
+      },
       "runtime" : {
          "requires" : {
-            "Linux::Inotify" : "0",
+            "Class::Inspector" : "0",
+            "Data::BitMask" : "0",
+            "Data::Dumper" : "0",
+            "Linux::Inotify2" : "0",
             "Moose" : "0",
             "MooseX::Getopt::Dashes" : "0",
             "MooseX::Types::Moose" : "0",
+            "POSIX" : "0",
             "Time::HiRes" : "0",
             "Try::Tiny" : "0",
             "strict" : "0",
@@ -56,7 +65,7 @@
          "web" : "http://github.com/avar/app-inotify-hookable"
       }
    },
-   "version" : "0.02",
+   "version" : "0.03",
    "x_authority" : "cpan:AVAR"
 }
 

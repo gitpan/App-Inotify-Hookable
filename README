@@ -17,15 +17,21 @@ SYNOPSIS
             --on-modify-path-command "^(/etc/uwsgi|/git_tree/central|/etc/app-config)=sudo /etc/init.d/uwsgi restart" \
             --on-modify-path-command "^/git_tree/static_assets=(cd /git_tree/static_assets && compress_static_assets)"
 
+    Or watch specific files:
+
+        inotify-hookable \
+            --watch-files /var/www/cgi-bin/mod_perl_handler \
+            --on-modify-command "apachectl restart"
+
 DESCRIPTION
     This simple command-line program is my replacement for the functionality
     offered by Plack's Filesys::Notify::Simple. I found that on very large
     git trees Plack would spend an inordinate amount watching the filesystem
     for changes.
 
-    This program uses Linux::Inotify, so the kernel will notify it instantly
-    when something changes (actually it's so fast that we have to work
-    around how fast it sends us events).
+    This program uses Linux::Inotify2, so the kernel will notify it
+    instantly when something changes (actually it's so fast that we have to
+    work around how fast it sends us events).
 
     The result is that you can run this e.g. in a screen session and have it
     watch your development environment, and your webserver will have begun
@@ -39,6 +45,10 @@ OPTIONS
   "-w" or "--watch-directories"
     Specify this to watch a directory, you can give this however many times
     you like to watch lots of directories.
+
+  "-f" or "--watch-files"
+    Watch a file, specify multiple times for multiple files. You can watch
+    files and directories in the same command.
 
   "-r" or "--recursive"
     If you supply this any directory you give will be recursively watched.
