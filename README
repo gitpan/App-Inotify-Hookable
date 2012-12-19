@@ -37,6 +37,10 @@ DESCRIPTION
     watch your development environment, and your webserver will have begun
     restarting before your finger leaves the *save* button.
 
+    vim and emacs temporary files are ignored by default (see
+    "--ignore-paths".) so you can edit your files without your server
+    restarting unnecessarily.
+
     Currently the command-line interface for this is the only one that
     really makes sense, this module is entirely blocking (although it could
     probably run in another process via POE or something). Patches welcome.
@@ -75,9 +79,17 @@ OPTIONS
     bar later on.
 
     To deal with this we enter a loop when we start getting events and sleep
-    for a default of 100 ms, as long as we keep getting events we keep
-    sleeping for 100 ms, but as soon as we haven't received anything new we
-    fire off our event handlers.
+    for a default of 100 microseconds, as long as we keep getting events we
+    keep sleeping for 100 microseconds, but as soon as we haven't received
+    anything new we fire off our event handlers.
+
+  "-i" or "--ignore-paths"
+    Regexes for files/directories to ignore events for. By default this is
+    set to regexes for vim and emacs temporary files, "qr{\..*sw.\z}" and
+    "qr{\.\#[^/]+\z}" respectively.
+
+    The regexes match after any "/" in the path or the beginning of the
+    string.
 
   "-d" or "--debug"
     Spew out some verbose debug output while running.
