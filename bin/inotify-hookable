@@ -4,7 +4,7 @@ BEGIN {
   $main::AUTHORITY = 'cpan:AVAR';
 }
 {
-  $main::VERSION = '0.04';
+  $main::VERSION = '0.05';
 }
 use strict;
 use warnings;

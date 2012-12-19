@@ -4,7 +4,7 @@ BEGIN {
   $App::Inotify::Hookable::AUTHORITY = 'cpan:AVAR';
 }
 {
-  $App::Inotify::Hookable::VERSION = '0.04';
+  $App::Inotify::Hookable::VERSION = '0.05';
 }
 use Moose;
 use MooseX::Types::Moose ':all';

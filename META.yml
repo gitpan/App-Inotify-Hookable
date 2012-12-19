@@ -35,5 +35,5 @@ resources:
   homepage: http://metacpan.org/release/App-Inotify-Hookable
   license: http://dev.perl.org/licenses/
   repository: git://github.com/avar/app-inotify-hookable.git
-version: 0.04
+version: 0.05
 x_authority: cpan:AVAR
