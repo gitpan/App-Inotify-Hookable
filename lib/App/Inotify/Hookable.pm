@@ -4,7 +4,7 @@ BEGIN {
   $App::Inotify::Hookable::AUTHORITY = 'cpan:AVAR';
 }
 {
-  $App::Inotify::Hookable::VERSION = '0.06';
+  $App::Inotify::Hookable::VERSION = '0.07';
 }
 use Moose;
 use MooseX::Types::Moose ':all';
@@ -15,7 +15,6 @@ use Try::Tiny;
 use Data::BitMask;
 use Data::Dumper;
 use Class::Inspector;
-use File::Find::Rule;
 use List::MoreUtils qw(uniq);
 
 with 'MooseX::Getopt::Dashes';
@@ -128,8 +127,6 @@ has _previously_watched_directories => (
     is         => 'rw',
     isa        => ArrayRef[Str],
 );
-
-my $find = 'File::Find::Rule';
 
 sub _build__notifier { Linux::Inotify2->new }
 
@@ -286,27 +283,28 @@ sub all_paths_to_watch {
     my @directories;
     if (@watch_directories) {
         if ($self->recursive) {
-            @directories = $find->directory->not(
-                $find->new->exec(
-                    sub {
-                        my ($shortname, $path, $fullname) = @_;
-                        $fullname =~ m[
-                            (?:
-                                # The .git directory
-                                /\.git\z
-                             |
-                                # Something in the .git directory
-                                /\.git/
-                            )
-                        ]x;
-                    }
-                )
-            )->in(@watch_directories);
+            chomp(@directories = qx[find @watch_directories -type d]);
         } else {
             @directories = @watch_directories;
         }
     }
-    return (@directories, @watch_files);
+
+    return (
+        @watch_files,
+        grep {
+            # Don't notify on "git status" (creates a lock) and other similar
+            # operations.
+            not m[
+                    (?:
+                       # The .git directory
+                       /\.git\z
+                      |
+                       # Something in the .git directory
+                       /\.git/
+                     )
+            ]x
+        } @directories
+    );
 }
 
 sub setup_watch {
