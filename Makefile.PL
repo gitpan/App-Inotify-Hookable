@@ -31,6 +31,7 @@ my %WriteMakefileArgs = (
     "Data::Dumper" => 0,
     "File::Find::Rule" => 0,
     "Linux::Inotify2" => 0,
+    "List::MoreUtils" => 0,
     "Moose" => 0,
     "MooseX::Getopt::Dashes" => 0,
     "MooseX::Types::Moose" => 0,
@@ -40,7 +41,7 @@ my %WriteMakefileArgs = (
     "strict" => 0,
     "warnings" => 0
   },
-  "VERSION" => "0.05",
+  "VERSION" => "0.06",
   "test" => {
     "TESTS" => "t/*.t"
   }

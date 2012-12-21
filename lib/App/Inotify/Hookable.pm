@@ -4,7 +4,7 @@ BEGIN {
   $App::Inotify::Hookable::AUTHORITY = 'cpan:AVAR';
 }
 {
-  $App::Inotify::Hookable::VERSION = '0.05';
+  $App::Inotify::Hookable::VERSION = '0.06';
 }
 use Moose;
 use MooseX::Types::Moose ':all';
@@ -16,6 +16,7 @@ use Data::BitMask;
 use Data::Dumper;
 use Class::Inspector;
 use File::Find::Rule;
+use List::MoreUtils qw(uniq);
 
 with 'MooseX::Getopt::Dashes';
 
@@ -106,7 +107,7 @@ has ignore_paths => (
 
 has _watches => (
     is            => 'ro',
-    isa           => 'HashRef',
+    isa           => HashRef,
     default       => sub { +{} },
     documentation => "What stuff are we watching?",
 );
@@ -121,6 +122,11 @@ has _bitmask => (
     is         => 'rw',
     isa        => 'Data::BitMask',
     lazy_build => 1,
+);
+
+has _previously_watched_directories => (
+    is         => 'rw',
+    isa        => ArrayRef[Str],
 );
 
 my $find = 'File::Find::Rule';
@@ -281,9 +287,20 @@ sub all_paths_to_watch {
     if (@watch_directories) {
         if ($self->recursive) {
             @directories = $find->directory->not(
-                # Don't notify on "git status" (creates a lock) and other similar
-                # operations.
-                $find->new->name('.git')
+                $find->new->exec(
+                    sub {
+                        my ($shortname, $path, $fullname) = @_;
+                        $fullname =~ m[
+                            (?:
+                                # The .git directory
+                                /\.git\z
+                             |
+                                # Something in the .git directory
+                                /\.git/
+                            )
+                        ]x;
+                    }
+                )
             )->in(@watch_directories);
         } else {
             @directories = @watch_directories;
@@ -295,30 +312,58 @@ sub all_paths_to_watch {
 sub setup_watch {
     my ($self) = @_;
 
+    my $t0 = [gettimeofday];
+
     my $notifier = $self->_notifier;
     my $watches  = $self->_watches;
     my $debug    = $self->debug;
 
-    # Add or re-setup watches
-    WATCH: for my $path ($self->all_paths_to_watch) {
-        my $have_watch  = exists $watches->{$path};
-        my $type        = -d $path ? 'directory' : 'file';
-        my $path_exists = -e $path;
+    my $watches_added    = 0;
+    my $watches_removed  = 0;
+    my $watches_replaced = 0;
 
-        my $inode_number = (stat $path)[1] if $path_exists;
+    my $previously_watched_directories = $self->_previously_watched_directories;
+    my @previously_watched_directories = $previously_watched_directories ? @$previously_watched_directories : ();
+    my @current_paths_to_watch         = $self->all_paths_to_watch;
+
+    my @all_paths_to_watch = uniq(
+        # The stuff we're watching now
+        @current_paths_to_watch,
+        # what we were watching earlier, so we know to remove watches
+        # for that if they've been removed.
+        @previously_watched_directories,
+    );
+
+    # Add or re-setup watches
+    WATCH: for my $path (@all_paths_to_watch) {
+        my $have_watch   = exists $watches->{$path};
+        my $type         = -d $path ? 'directory' : 'file';
+        my $path_exists  = -e $path;
+        my $inode_number; $inode_number = (stat $path)[1] if $path_exists;
 
         # path has gone away
         if ($have_watch && (not $path_exists)) {
             $watches->{$path}{watch}->cancel;
+            my $type = $watches->{$path}{type}; # In this case we care what it *was*
             delete $watches->{$path};
             $self->log("$type '$path' has gone away, removing watch") if $debug;
+            $watches_removed++;
             next WATCH;
         }
 
-        # object got replaced, remove the watch (we'll add a new watch for the new object)
-        if ($have_watch && $watches->{$path}{inode} ne $inode_number) {
-            $watches->{$path}{watch}->cancel;
-            $self->log("$type '$path' was replaced, replacing watch") if $debug;
+        if ($have_watch) {
+            if ($watches->{$path}{inode} eq $inode_number) {
+                # We have this watch already, and it hasn't changed the
+                # inode number, so no need to go and add it again.
+                next WATCH;
+            } else {
+                # object got replaced, remove the watch (we'll add a
+                # new watch for the new object).
+                $watches->{$path}{watch}->cancel;
+                my $type = $watches->{$path}{type}; # In this case we care what it *was*
+                $watches_replaced++;
+                $self->log("$type '$path' was replaced, replacing watch") if $debug;
+            }
         }
 
         my $watch = $notifier->watch(
@@ -377,12 +422,22 @@ DIE
             }
         }
 
+        $watches_added++;
         $self->log("Now watching $type: $path") if !$have_watch && $debug;
 
         $watches->{$path}{watch} = $watch;
         $watches->{$path}{type}  = $type;
         $watches->{$path}{inode} = $inode_number;
     }
+
+    # Set this to the stuff we were just going over so we'll know to
+    # delete stuff from there in the future.
+    $self->_previously_watched_directories(\@current_paths_to_watch);
+
+    my $elapsed = tv_interval ( $t0 );
+    my $total_num_watches = scalar keys %{ $notifier->{w} };
+    $self->log(sprintf "FINISHED setting up watches. Took %.2fs with $watches_added watches added, $watches_removed removed, $watches_replaced replaced. Have $total_num_watches total watches", $elapsed);
+    return;
 }
 
 sub _build__bitmask {
